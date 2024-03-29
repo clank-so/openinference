@@ -28,6 +28,7 @@ from openinference.semconv.trace import (
 from opentelemetry import trace as trace_api
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore
 from opentelemetry.util.types import AttributeValue
+from pydantic import BaseModel
 from typing_extensions import TypeGuard
 from wrapt import BoundFunctionWrapper, FunctionWrapper, wrap_object
 
@@ -67,6 +68,9 @@ class DSPyInstrumentor(BaseInstrumentor):  # type: ignore
 
         language_model_classes = LM.__subclasses__()
         for lm in language_model_classes:
+            if lm.__name__ == "DummyLM":
+                continue
+
             wrap_object(
                 module=_DSP_MODULE,
                 name=lm.__name__ + ".basic_request",
@@ -608,8 +612,12 @@ def _jsonify_output(response: Any) -> str:
     """
     Converts output to JSON string.
     """
+    if isinstance(response, BaseModel):
+        return json.dumps(response.model_dump())
+
     if _is_google_response(response):
         return json.dumps(_parse_google_response(response))
+
     return json.dumps(response)
 
 
