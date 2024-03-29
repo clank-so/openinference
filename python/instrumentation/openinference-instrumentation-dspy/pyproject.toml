@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openinference-instrumentation-dspy"
+name = "clank-so-openinference-instrumentation-dspy"
 dynamic = ["version"]
-description = "OpenInference DSPy Instrumentation"
+description = "OpenInference DSPy Instrumentation (clank.so fork)"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.9, <3.13"
