@@ -5,7 +5,7 @@ from openinference.instrumentation.langchain.package import _instruments
 from openinference.instrumentation.langchain.version import __version__
 from opentelemetry import trace as trace_api
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore
-from wrapt import wrap_function_wrapper
+from wrapt import wrap_function_wrapper  # type: ignore
 
 if TYPE_CHECKING:
     from langchain_core.callbacks import BaseCallbackManager
@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
+
+_MODULE = "langchain_core"
 
 
 class LangChainInstrumentor(BaseInstrumentor):  # type: ignore
@@ -27,8 +29,10 @@ class LangChainInstrumentor(BaseInstrumentor):  # type: ignore
         if not (tracer_provider := kwargs.get("tracer_provider")):
             tracer_provider = trace_api.get_tracer_provider()
         tracer = trace_api.get_tracer(__name__, __version__, tracer_provider)
+        import langchain_core
         from openinference.instrumentation.langchain._tracer import OpenInferenceTracer
 
+        self._original_callback_manager_init = langchain_core.callbacks.BaseCallbackManager.__init__
         wrap_function_wrapper(
             module="langchain_core.callbacks",
             name="BaseCallbackManager.__init__",
@@ -36,7 +40,10 @@ class LangChainInstrumentor(BaseInstrumentor):  # type: ignore
         )
 
     def _uninstrument(self, **kwargs: Any) -> None:
-        pass
+        import langchain_core
+
+        langchain_core.callbacks.BaseCallbackManager.__init__ = self._original_callback_manager_init  # type: ignore
+        self._original_callback_manager_init = None  # type: ignore
 
 
 class _BaseCallbackManagerInit:

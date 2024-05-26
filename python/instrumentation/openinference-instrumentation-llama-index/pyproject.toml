@@ -28,6 +28,7 @@ dependencies = [
   "opentelemetry-api",
   "opentelemetry-instrumentation",
   "opentelemetry-semantic-conventions",
+  "openinference-instrumentation>=0.1.7",
   "openinference-semantic-conventions",
   "typing-extensions",
   "wrapt",
@@ -35,10 +36,11 @@ dependencies = [
 
 [project.optional-dependencies]
 instruments = [
-  "llama-index >= 0.10.5",
+  "llama-index-core >= 0.10.5",
 ]
 test = [
-  "llama-index == 0.10.5",
+  "llama-index == 0.10.36",
+  "llama-index-core == 0.10.36",
   "llama-index-llms-openai",
   "opentelemetry-sdk",
   "respx",
@@ -58,3 +60,32 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openinference"]
+
+[tool.mypy]
+strict = true
+explicit_package_bases = true
+exclude = [
+  "examples",
+  "dist",
+  "sdist",
+]
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = [
+  "wrapt",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint.per-file-ignores]
+"*.ipynb" = ["E402", "E501"]
+
+[tool.ruff.lint]
+ignore-init-module-imports = true
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.isort]
+force-single-line = false

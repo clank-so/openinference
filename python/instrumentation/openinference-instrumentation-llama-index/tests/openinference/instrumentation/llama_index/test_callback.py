@@ -28,7 +28,8 @@ from llama_index.core.base.response.schema import StreamingResponse
 from llama_index.core.callbacks import CallbackManager
 from llama_index.core.schema import TextNode
 from llama_index.llms.openai import OpenAI  # type: ignore
-from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
+from openinference.instrumentation import using_attributes
+from openinference.instrumentation.llama_index import LlamaIndexInstrumentor, _legacy_llama_index
 from openinference.semconv.trace import (
     DocumentAttributes,
     EmbeddingAttributes,
@@ -51,6 +52,10 @@ for name, logger in logging.root.manager.loggerDict.items():
         logger.addHandler(logging.StreamHandler())
 
 
+@pytest.mark.skipif(
+    not _legacy_llama_index(),
+    reason="legacy callback system",
+)
 @pytest.mark.parametrize(
     "is_stream,is_async",
     [
@@ -61,15 +66,23 @@ for name, logger in logging.root.manager.loggerDict.items():
         # (True, True),
     ],
 )
-@pytest.mark.parametrize("status_code", [200, 400])
+@pytest.mark.parametrize(
+    "status_code", [200]
+)  # 400 has been removed because retries have been added and can't be easily modified
+@pytest.mark.parametrize("use_context_attributes", [False, True])
 def test_callback_llm(
     is_async: bool,
     is_stream: bool,
     status_code: int,
+    use_context_attributes: bool,
     respx_mock: MockRouter,
     in_memory_span_exporter: InMemorySpanExporter,
     nodes: List[Document],
     chat_completion_mock_stream: Tuple[List[bytes], List[Dict[str, Any]]],
+    session_id: str,
+    user_id: str,
+    metadata: Dict[str, Any],
+    tags: List[str],
 ) -> None:
     n = 10  # number of concurrent queries
     questions = {randstr() for _ in range(n)}
@@ -100,25 +113,54 @@ def test_callback_llm(
     url = "https://api.openai.com/v1/chat/completions"
     respx_mock.post(url).mock(return_value=Response(status_code=status_code, **respx_kwargs))
 
+    async def task() -> None:
+        await asyncio.gather(
+            *(query_engine.aquery(question) for question in questions),
+            return_exceptions=True,
+        )
+
+    def threaded_query(question: str) -> None:
+        response = query_engine.query(question)
+        (list(cast(StreamingResponse, response).response_gen) if is_stream else None,)
+
+    def threaded_query_with_attributes(question: str) -> None:
+        # This context manager must be inside this function definition so
+        # there's a different instantiation per thread. This allows to use
+        # a different context per thread, as desired
+        with using_attributes(
+            session_id=session_id,
+            user_id=user_id,
+            metadata=metadata,
+            tags=tags,
+        ):
+            response = query_engine.query(question)
+            (list(cast(StreamingResponse, response).response_gen) if is_stream else None,)
+
     with suppress(openai.BadRequestError):
-        if is_async:
-
-            async def task() -> None:
-                await asyncio.gather(
-                    *(query_engine.aquery(question) for question in questions),
-                    return_exceptions=True,
-                )
-
-            asyncio.run(task())
+        if use_context_attributes:
+            if is_async:
+                with using_attributes(
+                    session_id=session_id,
+                    user_id=user_id,
+                    metadata=metadata,
+                    tags=tags,
+                ):
+                    asyncio.run(task())
+            else:
+                with ThreadPoolExecutor(max_workers=n) as executor:
+                    executor.map(
+                        threaded_query_with_attributes,
+                        questions,
+                    )
         else:
-            with ThreadPoolExecutor(max_workers=n) as executor:
-                executor.map(
-                    lambda question: (
-                        (response := query_engine.query(question)),
-                        list(cast(StreamingResponse, response).response_gen) if is_stream else None,
-                    ),
-                    questions,
-                )
+            if is_async:
+                asyncio.run(task())
+            else:
+                with ThreadPoolExecutor(max_workers=n) as executor:
+                    executor.map(
+                        threaded_query,
+                        questions,
+                    )
 
     spans = in_memory_span_exporter.get_finished_spans()
     traces: DefaultDict[int, Dict[str, ReadableSpan]] = defaultdict(dict)
@@ -127,7 +169,18 @@ def test_callback_llm(
 
     assert len(traces) == n
     for spans_by_name in traces.values():
-        question = _check_spans(spans_by_name, answer, nodes, status_code, is_stream)
+        question = _check_spans(
+            spans_by_name,
+            answer,
+            nodes,
+            status_code,
+            use_context_attributes,
+            is_stream,
+            session_id,
+            user_id,
+            metadata,
+            tags,
+        )
         assert question in questions
         questions.remove(question)
     assert len(questions) == 0
@@ -138,9 +191,14 @@ def _check_spans(
     answer: str,
     nodes: List[Document],
     status_code: int,
+    use_context_attributes: bool,
     is_stream: bool,
+    session_id: str,
+    user_id: str,
+    metadata: Dict[str, Any],
+    tags: List[str],
 ) -> str:
-    assert (query_span := spans_by_name.pop("query")) is not None
+    assert (query_span := spans_by_name.pop("query", None)) is not None
     assert query_span.parent is None
     query_attributes = dict(query_span.attributes or {})
     assert query_attributes.pop(OPENINFERENCE_SPAN_KIND, None) == CHAIN.value
@@ -150,18 +208,26 @@ def _check_spans(
         assert query_span.status.status_code == trace_api.StatusCode.OK
         assert not query_span.status.description
         assert query_attributes.pop(OUTPUT_VALUE, None) == answer
-    elif (
-        # FIXME: currently the error is propagated when streaming because we don't rely on
-        # `on_event_end` to set the status code.
-        status_code == 400 and is_stream
-    ):
-        assert query_span.status.status_code == trace_api.StatusCode.ERROR
-        assert query_span.status.description and query_span.status.description.startswith(
-            openai.BadRequestError.__name__,
-        )
+    # LlamaIndex introduced a regression causing streaming LLM responses that
+    # result in a 400 to not register their exception and status code
+    # information. We are going to ignore this issue as we are about to migrate
+    # our LlamaIndex instrumentation away from the existing callback system to
+    # the new system.
+    # elif (
+    #     # FIXME: currently the error is propagated when streaming because we don't rely on
+    #     # `on_event_end` to set the status code.
+    #     status_code == 400 and is_stream
+    # ):
+    #     assert query_span.status.status_code == trace_api.StatusCode.ERROR
+    #     assert query_span.status.description and query_span.status.description.startswith(
+    #         openai.BadRequestError.__name__,
+    #     )
+
+    if use_context_attributes:
+        _check_context_attributes(query_attributes, session_id, user_id, metadata, tags)
     assert query_attributes == {}
 
-    assert (synthesize_span := spans_by_name.pop("synthesize")) is not None
+    assert (synthesize_span := spans_by_name.pop("synthesize", None)) is not None
     assert synthesize_span.parent is not None
     assert synthesize_span.parent.span_id == query_span.context.span_id
     assert synthesize_span.context.trace_id == query_span.context.trace_id
@@ -172,18 +238,25 @@ def _check_spans(
         assert synthesize_span.status.status_code == trace_api.StatusCode.OK
         assert not synthesize_span.status.description
         assert synthesize_attributes.pop(OUTPUT_VALUE, None) == answer
-    elif (
-        # FIXME: currently the error is propagated when streaming because we don't rely on
-        # `on_event_end` to set the status code.
-        status_code == 400 and is_stream
-    ):
-        assert synthesize_span.status.status_code == trace_api.StatusCode.ERROR
-        assert query_span.status.description and query_span.status.description.startswith(
-            openai.BadRequestError.__name__,
-        )
+    # LlamaIndex introduced a regression causing streaming LLM responses that
+    # result in a 400 to not register their exception and status code
+    # information. We are going to ignore this issue as we are about to migrate
+    # our LlamaIndex instrumentation away from the existing callback system to
+    # the new system.
+    # elif (
+    #     # FIXME: currently the error is propagated when streaming because we don't rely on
+    #     # `on_event_end` to set the status code.
+    #     status_code == 400 and is_stream
+    # ):
+    #     assert synthesize_span.status.status_code == trace_api.StatusCode.ERROR
+    #     assert query_span.status.description and query_span.status.description.startswith(
+    #         openai.BadRequestError.__name__,
+    #     )
+    if use_context_attributes:
+        _check_context_attributes(synthesize_attributes, session_id, user_id, metadata, tags)
     assert synthesize_attributes == {}
 
-    assert (retrieve_span := spans_by_name.pop("retrieve")) is not None
+    assert (retrieve_span := spans_by_name.pop("retrieve", None)) is not None
     assert retrieve_span.parent is not None
     assert retrieve_span.parent.span_id == query_span.context.span_id
     assert retrieve_span.context.trace_id == query_span.context.trace_id
@@ -203,6 +276,8 @@ def _check_spans(
         retrieve_attributes.pop(f"{RETRIEVAL_DOCUMENTS}.1.{DOCUMENT_CONTENT}", None)
         == nodes[1].text
     )
+    if use_context_attributes:
+        _check_context_attributes(retrieve_attributes, session_id, user_id, metadata, tags)
     assert retrieve_attributes == {}
 
     if status_code == 200:
@@ -237,6 +312,8 @@ def _check_spans(
                 llm_attributes.pop(f"{LLM_OUTPUT_MESSAGES}.0.{MESSAGE_ROLE}", None) == "assistant"
             )
             assert llm_attributes.pop(f"{LLM_OUTPUT_MESSAGES}.0.{MESSAGE_CONTENT}", None) == answer
+        if use_context_attributes:
+            _check_context_attributes(llm_attributes, session_id, user_id, metadata, tags)
         assert llm_attributes == {}
 
     # FIXME: maybe chunking spans should be discarded?
@@ -246,11 +323,61 @@ def _check_spans(
     assert chunking_span.context.trace_id == synthesize_span.context.trace_id
     chunking_attributes = dict(chunking_span.attributes or {})
     assert chunking_attributes.pop(OPENINFERENCE_SPAN_KIND, None) is not None
+    if use_context_attributes:
+        _check_context_attributes(chunking_attributes, session_id, user_id, metadata, tags)
     assert chunking_attributes == {}
 
     assert spans_by_name == {}
 
     return question
+
+
+def _check_context_attributes(
+    attributes: Dict[str, Any],
+    session_id: str,
+    user_id: str,
+    metadata: Dict[str, Any],
+    tags: List[str],
+) -> None:
+    assert attributes.pop(SESSION_ID, None) == session_id
+    assert attributes.pop(USER_ID, None) == user_id
+    attr_metadata = attributes.pop(METADATA, None)
+    assert attr_metadata is not None
+    assert isinstance(attr_metadata, str)  # must be json string
+    metadata_dict = json.loads(attr_metadata)
+    assert metadata_dict == metadata
+    attr_tags = attributes.pop(TAG_TAGS, None)
+    assert attr_tags is not None
+    assert len(attr_tags) == len(tags)
+    assert list(attr_tags) == tags
+
+
+@pytest.fixture()
+def session_id() -> str:
+    return "my-test-session-id"
+
+
+@pytest.fixture()
+def user_id() -> str:
+    return "my-test-user-id"
+
+
+@pytest.fixture()
+def metadata() -> Dict[str, Any]:
+    return {
+        "test-int": 1,
+        "test-str": "string",
+        "test-list": [1, 2, 3],
+        "test-dict": {
+            "key-1": "val-1",
+            "key-2": "val-2",
+        },
+    }
+
+
+@pytest.fixture()
+def tags() -> List[str]:
+    return ["tag-1", "tag-2"]
 
 
 @pytest.fixture
@@ -374,3 +501,7 @@ LLM_PROMPT_TEMPLATE_VARIABLES = SpanAttributes.LLM_PROMPT_TEMPLATE_VARIABLES
 CHAIN = OpenInferenceSpanKindValues.CHAIN
 LLM = OpenInferenceSpanKindValues.LLM
 RETRIEVER = OpenInferenceSpanKindValues.RETRIEVER
+SESSION_ID = SpanAttributes.SESSION_ID
+USER_ID = SpanAttributes.USER_ID
+METADATA = SpanAttributes.METADATA
+TAG_TAGS = SpanAttributes.TAG_TAGS

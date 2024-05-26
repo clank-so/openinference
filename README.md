@@ -46,22 +46,27 @@ OpenInference provides a set of instrumentations for popular machine learning SD
 | [LangChain](python/instrumentation/openinference-instrumentation-langchain/examples/)          | LangChain primitives and simple chains                                                       | Beginner         |
 | [LlamaIndex + Next.js Chatbot](python/examples/llama-index/)                                   | A fully functional chatbot using Next.js and a LlamaIndex FastAPI backend                    | Intermediate     |
 | [LangServe](python/examples/langserve/)                                                        | A LangChain application deployed with LangServe using custom metadata on a per-request basis | Intermediate     |
+| [DSPy](python/examples/dspy-rag-fastapi/)                                                      | A DSPy RAG application using FastAPI, Weaviate, and Cohere                                   | Intermediate     |
 
 ## JavaScript
 
 ### Libraries
 
-| Package                                                                                               | Description                                   | Version                                                                                                                                                                   |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@arizeai/openinference-semantic-conventions`](./js/packages/openinference-semantic-conventions)     | Semantic conventions for tracing of LLM Apps. | [![NPM Version](https://img.shields.io/npm/v/@arizeai/openinference-semantic-conventions.svg)](https://www.npmjs.com/package/@arizeai/openinference-semantic-conventions) |
-| [`@arizeai/openinference-instrumentation-openai`](./js/packages/openinference-instrumentation-openai) | OpenInference Instrumentation for OpenAI SDK. | [![NPM Version](https://img.shields.io/npm/v/@arizeai/openinference-instrumentation-openai)](https://www.npmjs.com/package/@arizeai/openinference-instrumentation-openai) |
+| Package                                                                                                     | Description                                     | Version                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@arizeai/openinference-semantic-conventions`](./js/packages/openinference-semantic-conventions)           | Semantic conventions for tracing of LLM Apps.   | [![NPM Version](https://img.shields.io/npm/v/@arizeai/openinference-semantic-conventions.svg)](https://www.npmjs.com/package/@arizeai/openinference-semantic-conventions)       |
+| [`@arizeai/openinference-instrumentation-openai`](./js/packages/openinference-instrumentation-openai)       | OpenInference Instrumentation for OpenAI SDK.   | [![NPM Version](https://img.shields.io/npm/v/@arizeai/openinference-instrumentation-openai)](https://www.npmjs.com/package/@arizeai/openinference-instrumentation-openai)       |
+| [`@arizeai/openinference-instrumentation/langchain`](./js/packages/openinference-instrumentation-langchain) | OpenInference Instrumentation for LangChain.js. | [![NPM Version](https://img.shields.io/npm/v/@arizeai/openinference-instrumentation-langchain)](https://www.npmjs.com/package/@arizeai/openinference-instrumentation-langchain) |
 
 ### Examples
 
-| Name                                                      | Description                                                                                                                                               | Complexity Level |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| [OpenAI SDK](js/examples/openai)                          | OpenAI Node.js client                                                                                                                                     | Beginner         |
-| [LlamaIndex Express App](js/examples/llama-index-express) | A fully functional LlamaIndex chatbot with a Next.js frontend and a LlamaIndex Express backend, instrumented using `openinference-instrumentation-openai` | Intermediate     |
+| Name                                                                             | Description                                                                                                                                                                                          | Complexity Level |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| [OpenAI SDK](js/examples/openai)                                                 | OpenAI Node.js client                                                                                                                                                                                | Beginner         |
+| [LlamaIndex Express App](js/examples/llama-index-express)                        | A fully functional LlamaIndex chatbot with a Next.js frontend and a LlamaIndex Express backend, instrumented using `openinference-instrumentation-openai`                                            | Intermediate     |
+| [LangChain OpenAI](js/packages/openinference-instrumentation-langchain/examples) | A simple script to call OpenAI via LangChain, instrumented using `openinference-instrumentation-langchain`                                                                                           | Beginner         |
+| [LangChain RAG Express App](js/examples/langchain-express)                       | A fully functional LangChain chatbot that uses RAG to answer user questions. It has a Next.js frontend and a LangChain Express backend, instrumented using `openinference-instrumentation-langchain` | Intermediate     |
+| [Next.js + OpenAI](js/examples/nextjs-openai-simple/)                            | A Next.js 13 project bootstrapped with `create-next-app` that uses OpenAI to generate text                                                                                                           | Beginner         |
 
 ## Supported Destinations
 

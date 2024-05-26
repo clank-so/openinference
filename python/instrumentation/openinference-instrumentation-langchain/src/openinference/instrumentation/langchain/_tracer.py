@@ -23,9 +23,10 @@ from typing import (
 )
 from uuid import UUID
 
-import wrapt
+import wrapt  # type: ignore
 from langchain_core.tracers.base import BaseTracer
 from langchain_core.tracers.schemas import Run
+from openinference.instrumentation import get_attributes_from_context, safe_json_dumps
 from openinference.semconv.trace import (
     DocumentAttributes,
     EmbeddingAttributes,
@@ -191,6 +192,7 @@ def _update_span(span: trace_api.Span, run: Run) -> None:
         else _langchain_run_type_to_span_kind(run.run_type)
     )
     span.set_attribute(OPENINFERENCE_SPAN_KIND, span_kind.value)
+    span.set_attributes(dict(get_attributes_from_context()))
     span.set_attributes(
         dict(
             _flatten(
@@ -219,12 +221,6 @@ def _langchain_run_type_to_span_kind(run_type: str) -> OpenInferenceSpanKindValu
         return OpenInferenceSpanKindValues(run_type.upper())
     except ValueError:
         return OpenInferenceSpanKindValues.UNKNOWN
-
-
-def _serialize_json(obj: Any) -> str:
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    return str(obj)
 
 
 def stop_on_exception(
@@ -280,7 +276,7 @@ def _convert_io(obj: Optional[Mapping[str, Any]]) -> Iterator[str]:
         yield value
     else:
         obj = dict(_replace_nan(obj))
-        yield json.dumps(obj, default=_serialize_json)
+        yield safe_json_dumps(obj)
         yield OpenInferenceMimeTypeValues.JSON.value
 
 
@@ -463,7 +459,7 @@ def _prompt_template(run: Run) -> Iterator[Tuple[str, Any]]:
                     if (value := run.inputs.get(variable)) is not None:
                         template_variables[variable] = value
                 if template_variables:
-                    yield LLM_PROMPT_TEMPLATE_VARIABLES, json.dumps(template_variables)
+                    yield LLM_PROMPT_TEMPLATE_VARIABLES, safe_json_dumps(template_variables)
             break
 
 
@@ -479,7 +475,7 @@ def _invocation_parameters(run: Run) -> Iterator[Tuple[str, str]]:
         assert isinstance(
             invocation_parameters, Mapping
         ), f"expected Mapping, found {type(invocation_parameters)}"
-        yield LLM_INVOCATION_PARAMETERS, json.dumps(invocation_parameters)
+        yield LLM_INVOCATION_PARAMETERS, safe_json_dumps(invocation_parameters)
 
 
 @stop_on_exception
@@ -528,7 +524,7 @@ def _function_calls(outputs: Optional[Mapping[str, Any]]) -> Iterator[Tuple[str,
             outputs["generations"][0][0]["message"]["kwargs"]["additional_kwargs"]["function_call"]
         )
         function_call_data["arguments"] = json.loads(function_call_data["arguments"])
-        yield LLM_FUNCTION_CALL, json.dumps(function_call_data)
+        yield LLM_FUNCTION_CALL, safe_json_dumps(function_call_data)
     except Exception:
         pass
 
@@ -567,7 +563,13 @@ def _metadata(run: Run) -> Iterator[Tuple[str, str]]:
     if not run.extra or not (metadata := run.extra.get("metadata")):
         return
     assert isinstance(metadata, Mapping), f"expected Mapping, found {type(metadata)}"
-    yield METADATA, json.dumps(metadata)
+    if session_id := (
+        metadata.get(LANGCHAIN_SESSION_ID)
+        or metadata.get(LANGCHAIN_CONVERSATION_ID)
+        or metadata.get(LANGCHAIN_THREAD_ID)
+    ):
+        yield SESSION_ID, session_id
+    yield METADATA, safe_json_dumps(metadata)
 
 
 @stop_on_exception
@@ -577,25 +579,16 @@ def _as_document(document: Any) -> Iterator[Tuple[str, Any]]:
         yield DOCUMENT_CONTENT, page_content
     if metadata := getattr(document, "metadata", None):
         assert isinstance(metadata, Mapping), f"expected Mapping, found {type(metadata)}"
-        yield DOCUMENT_METADATA, json.dumps(metadata, cls=_SafeJSONEncoder)
-
-
-class _SafeJSONEncoder(json.JSONEncoder):
-    """
-    A JSON encoder that falls back to the string representation of a
-    non-JSON-serializable object rather than raising an error.
-    """
-
-    def default(self, obj: Any) -> Any:
-        try:
-            return super().default(obj)
-        except TypeError:
-            return str(obj)
+        yield DOCUMENT_METADATA, safe_json_dumps(metadata)
 
 
 def _as_utc_nano(dt: datetime) -> int:
     return int(dt.astimezone(timezone.utc).timestamp() * 1_000_000_000)
 
+
+LANGCHAIN_SESSION_ID = "session_id"
+LANGCHAIN_CONVERSATION_ID = "conversation_id"
+LANGCHAIN_THREAD_ID = "thread_id"
 
 DOCUMENT_CONTENT = DocumentAttributes.DOCUMENT_CONTENT
 DOCUMENT_ID = DocumentAttributes.DOCUMENT_ID
@@ -639,3 +632,4 @@ TOOL_DESCRIPTION = SpanAttributes.TOOL_DESCRIPTION
 TOOL_NAME = SpanAttributes.TOOL_NAME
 TOOL_PARAMETERS = SpanAttributes.TOOL_PARAMETERS
 METADATA = SpanAttributes.METADATA
+SESSION_ID = SpanAttributes.SESSION_ID

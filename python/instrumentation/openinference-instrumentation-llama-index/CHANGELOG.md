@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.4.1](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-llama-index-v1.4.0...python-openinference-instrumentation-llama-index-v1.4.1) (2024-05-21)
+
+
+### Bug Fixes
+
+* further llama-index support for non-ascii characters ([#487](https://github.com/Arize-ai/openinference/issues/487)) ([e28bfc7](https://github.com/Arize-ai/openinference/commit/e28bfc75ccbd3c79d6c69a5b180cdfcefb6b2342))
+* improve llama-index support for non-ascii characters ([#477](https://github.com/Arize-ai/openinference/issues/477)) ([70665cb](https://github.com/Arize-ai/openinference/commit/70665cb9febe13a3f795ee498eb06481f0945a73))
+
+## [1.4.0](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-llama-index-v1.3.0...python-openinference-instrumentation-llama-index-v1.4.0) (2024-05-17)
+
+
+### Features
+
+* support llama-index new instrumentation paradigm under feature flag `use_experimental_instrumentation` ([#462](https://github.com/Arize-ai/openinference/issues/462)) ([e254928](https://github.com/Arize-ai/openinference/commit/e254928bdf08a784df99d2e0f133be060be905bd))
+
+## [1.3.0](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-llama-index-v1.2.2...python-openinference-instrumentation-llama-index-v1.3.0) (2024-05-04)
+
+
+### Features
+
+* Add span attributes from OTEL context for llama-index instrumentator ([#417](https://github.com/Arize-ai/openinference/issues/417)) ([09f5077](https://github.com/Arize-ai/openinference/commit/09f50770b41362b66573a7dbbe5500634953e233))
+
+
+### Bug Fixes
+
+* Bump openinference-instrumentation req to avoid yanked release ([#428](https://github.com/Arize-ai/openinference/issues/428)) ([27f6e06](https://github.com/Arize-ai/openinference/commit/27f6e06274fe9c914f28f04ce15f5995a2f80414))
+
+## [1.2.2](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-llama-index-v1.2.1...python-openinference-instrumentation-llama-index-v1.2.2) (2024-04-22)
+
+
+### Bug Fixes
+
+* convert numpy values for protobuf ([#394](https://github.com/Arize-ai/openinference/issues/394)) ([eccda65](https://github.com/Arize-ai/openinference/commit/eccda6510e2bbdfb6ecb7779bb7adcab77e070d3))
+
 ## [1.2.1](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-llama-index-v1.2.0...python-openinference-instrumentation-llama-index-v1.2.1) (2024-03-18)
 
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.9](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-dspy-v0.1.8...python-openinference-instrumentation-dspy-v0.1.9) (2024-05-21)
+
+
+### Bug Fixes
+
+* further dspy support for non-ascii characters ([#488](https://github.com/Arize-ai/openinference/issues/488)) ([fe9d2dd](https://github.com/Arize-ai/openinference/commit/fe9d2dd453aadd6758ba3754fd4f0e68342be931))
+* improve dspy support for non-ascii characters ([#478](https://github.com/Arize-ai/openinference/issues/478)) ([344bd13](https://github.com/Arize-ai/openinference/commit/344bd135ec1069d58365f25a5437cbd546b80cf0))
+
+## [0.1.8](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-dspy-v0.1.7...python-openinference-instrumentation-dspy-v0.1.8) (2024-05-09)
+
+
+### Features
+
+* Make DSPY instrumentation read from attributes from context ([#421](https://github.com/Arize-ai/openinference/issues/421)) ([60c9b9c](https://github.com/Arize-ai/openinference/commit/60c9b9c2a82f4b149e1b89aff9295f9fe17fb5a7))
+
+## [0.1.7](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-dspy-v0.1.6...python-openinference-instrumentation-dspy-v0.1.7) (2024-04-27)
+
+
+### Bug Fixes
+
+* **dspy:** dspy.Cohere ([#406](https://github.com/Arize-ai/openinference/issues/406)) ([d3c097d](https://github.com/Arize-ai/openinference/commit/d3c097d5356fe478f56f10451d110806f037fe10))
+
+
+### Documentation
+
+* improve dspy readme ([#297](https://github.com/Arize-ai/openinference/issues/297)) ([af34d98](https://github.com/Arize-ai/openinference/commit/af34d98d9657287625a6776ca1cab09768da6aa6))
+
 ## [0.1.6](https://github.com/Arize-ai/openinference/compare/python-openinference-instrumentation-dspy-v0.1.5...python-openinference-instrumentation-dspy-v0.1.6) (2024-03-14)
 
 

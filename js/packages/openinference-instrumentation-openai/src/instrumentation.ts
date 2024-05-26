@@ -36,9 +36,40 @@ import {
   EmbeddingCreateParams,
 } from "openai/resources";
 import { assertUnreachable, isString } from "./typeUtils";
+import { isTracingSuppressed } from "@opentelemetry/core";
 
 const MODULE_NAME = "openai";
 
+/**
+ * Flag to check if the openai module has been patched
+ * Note: This is a fallback in case the module is made immutable (e.x. Deno, webpack, etc.)
+ */
+let _isOpenInferencePatched = false;
+
+/**
+ * function to check if instrumentation is enabled / disabled
+ */
+export function isPatched() {
+  return _isOpenInferencePatched;
+}
+
+/**
+ * Resolves the execution context for the current span
+ * If tracing is suppressed, the span is dropped and the current context is returned
+ * @param span
+ */
+function getExecContext(span: Span) {
+  const activeContext = context.active();
+  const suppressTracing = isTracingSuppressed(activeContext);
+  const execContext = suppressTracing
+    ? trace.setSpan(context.active(), span)
+    : activeContext;
+  // Drop the span from the context
+  if (suppressTracing) {
+    trace.deleteSpan(activeContext);
+  }
+  return execContext;
+}
 export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
   constructor(config?: InstrumentationConfig) {
     super(
@@ -57,6 +88,16 @@ export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
     );
     return module;
   }
+
+  /**
+   * Manually instruments the OpenAI module. This is needed when the module is not loaded via require (commonjs)
+   * @param {openai} module
+   */
+  manuallyInstrument(module: typeof openai) {
+    diag.debug(`Manually instrumenting ${MODULE_NAME}`);
+    this.patch(module);
+  }
+
   /**
    * Patches the OpenAI module
    */
@@ -65,7 +106,7 @@ export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
     moduleVersion?: string,
   ) {
     diag.debug(`Applying patch for ${MODULE_NAME}@${moduleVersion}`);
-    if (module?.openInferencePatched) {
+    if (module?.openInferencePatched || _isOpenInferencePatched) {
       return module;
     }
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -102,7 +143,8 @@ export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
               },
             },
           );
-          const execContext = trace.setSpan(context.active(), span);
+
+          const execContext = getExecContext(span);
           const execPromise = safeExecuteInTheMiddle<
             ReturnType<ChatCompletionCreateType>
           >(
@@ -178,7 +220,8 @@ export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
               ...getCompletionInputValueAndMimeType(body),
             },
           });
-          const execContext = trace.setSpan(context.active(), span);
+          const execContext = getExecContext(span);
+
           const execPromise = safeExecuteInTheMiddle<
             ReturnType<CompletionsCreateType>
           >(
@@ -250,7 +293,7 @@ export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
               ...getEmbeddingTextAttributes(body),
             },
           });
-          const execContext = trace.setSpan(context.active(), span);
+          const execContext = getExecContext(span);
           const execPromise = safeExecuteInTheMiddle<
             ReturnType<EmbeddingsCreateType>
           >(
@@ -288,16 +331,35 @@ export class OpenAIInstrumentation extends InstrumentationBase<typeof openai> {
       },
     );
 
-    module.openInferencePatched = true;
+    _isOpenInferencePatched = true;
+    try {
+      // This can fail if the module is made immutable via the runtime or bundler
+      module.openInferencePatched = true;
+    } catch (e) {
+      diag.warn(`Failed to set ${MODULE_NAME} patched flag on the module`, e);
+    }
+
     return module;
   }
   /**
    * Un-patches the OpenAI module's chat completions API
    */
-  private unpatch(moduleExports: typeof openai, moduleVersion?: string) {
+  private unpatch(
+    moduleExports: typeof openai & { openInferencePatched?: boolean },
+    moduleVersion?: string,
+  ) {
     diag.debug(`Removing patch for ${MODULE_NAME}@${moduleVersion}`);
     this._unwrap(moduleExports.OpenAI.Chat.Completions.prototype, "create");
+    this._unwrap(moduleExports.OpenAI.Completions.prototype, "create");
     this._unwrap(moduleExports.OpenAI.Embeddings.prototype, "create");
+
+    _isOpenInferencePatched = false;
+    try {
+      // This can fail if the module is made immutable via the runtime or bundler
+      moduleExports.openInferencePatched = false;
+    } catch (e) {
+      diag.warn(`Failed to unset ${MODULE_NAME} patched flag on the module`, e);
+    }
   }
 }
 

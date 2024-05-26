@@ -1,5 +1,23 @@
 # @arizeai/openinference-semantic-conventions
 
+## 0.5.0
+
+### Minor Changes
+
+- 0d1d065: Add resource attribute for project name
+
+## 0.4.0
+
+### Minor Changes
+
+- 921a40c: Add semantic conventions for session.id and user.id
+
+## 0.3.0
+
+### Minor Changes
+
+- 9af89e5: add semantic conventions for prompt template, retrieval documents, tools, and functions
+
 ## 0.2.0
 
 ### Minor Changes

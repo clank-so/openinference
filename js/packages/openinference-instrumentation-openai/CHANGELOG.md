@@ -1,5 +1,38 @@
 # @arizeai/openinference-instrumentation-openai
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [0d1d065]
+  - @arizeai/openinference-semantic-conventions@0.5.0
+
+## 0.3.0
+
+### Minor Changes
+
+- ab5504f: Add support for patch / unpatch of packages that are made immutable (Deno, webpack)
+
+## 0.2.0
+
+### Minor Changes
+
+- 53311f5: Add manual instrumentation for openai node sdk
+
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [921a40c]
+  - @arizeai/openinference-semantic-conventions@0.4.0
+
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [9af89e5]
+  - @arizeai/openinference-semantic-conventions@0.3.0
+
 ## 0.1.2
 
 ### Patch Changes

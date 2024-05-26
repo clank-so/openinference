@@ -6,15 +6,20 @@
         "arizeai",
         "autouse",
         "chatbot",
+        "dotenv",
         "dspy",
         "instrumentator",
         "Instrumentor",
         "langchain",
         "llms",
+        "nextjs",
         "openinference",
         "otel",
         "OTLP",
-        "uninstrument"
+        "Streamlit",
+        "uninstrument",
+        "unsuppress",
+        "weaviate"
     ],
     "flagWords": [
         "hte"

@@ -15,6 +15,7 @@ from typing import (
     Mapping,
     Optional,
     OrderedDict,
+    SupportsFloat,
     Tuple,
     TypeVar,
     Union,
@@ -22,6 +23,7 @@ from typing import (
 )
 from uuid import uuid4
 
+from openinference.instrumentation import get_attributes_from_context, safe_json_dumps
 from openinference.semconv.trace import (
     DocumentAttributes,
     EmbeddingAttributes,
@@ -102,7 +104,7 @@ def payload_to_semantic_attributes(
                 DOCUMENT_SCORE: node_with_score.score,
                 DOCUMENT_CONTENT: node_with_score.node.text,
                 **(
-                    {DOCUMENT_METADATA: json.dumps(metadata)}
+                    {DOCUMENT_METADATA: safe_json_dumps(metadata)}
                     if (metadata := node_with_score.node.metadata)
                     else {}
                 ),
@@ -149,7 +151,7 @@ def payload_to_semantic_attributes(
                     DOCUMENT_SCORE: node_with_score.score,
                     DOCUMENT_CONTENT: node_with_score.node.text,
                     **(
-                        {DOCUMENT_METADATA: json.dumps(metadata)}
+                        {DOCUMENT_METADATA: safe_json_dumps(metadata)}
                         if (metadata := node_with_score.node.metadata)
                         else {}
                     ),
@@ -161,7 +163,7 @@ def payload_to_semantic_attributes(
         attributes[TOOL_NAME] = tool_metadata.name
         attributes[TOOL_DESCRIPTION] = tool_metadata.description
         if tool_parameters := tool_metadata.to_openai_tool()["function"]["parameters"]:
-            attributes[TOOL_PARAMETERS] = json.dumps(tool_parameters)
+            attributes[TOOL_PARAMETERS] = safe_json_dumps(tool_parameters)
     if EventPayload.SERIALIZED in payload:
         serialized = payload[EventPayload.SERIALIZED]
         if event_type is CBEventType.EMBEDDING:
@@ -172,7 +174,7 @@ def payload_to_semantic_attributes(
                 attributes[LLM_MODEL_NAME] = model_name
                 invocation_parameters = _extract_invocation_parameters(serialized)
                 invocation_parameters["model"] = model_name
-                attributes[LLM_INVOCATION_PARAMETERS] = json.dumps(invocation_parameters)
+                attributes[LLM_INVOCATION_PARAMETERS] = safe_json_dumps(invocation_parameters)
     return attributes
 
 
@@ -442,6 +444,7 @@ class _ResponseGen(ObjectProxy):  # type: ignore
                     )
                 else:
                     span.set_attributes(flattened_attributes)
+                span.set_attributes(dict(get_attributes_from_context()))
                 span.set_status(status=status)
                 end_time = event_data.end_time
                 span.end(end_time=end_time)
@@ -471,6 +474,7 @@ def _finish_tracing(event_data: _EventData) -> None:
         status = trace_api.Status(status_code=trace_api.StatusCode.OK)
     span.set_status(status=status)
     try:
+        span.set_attributes(dict(get_attributes_from_context()))
         span.set_attributes(dict(_flatten(attributes)))
     except Exception:
         logger.exception(
@@ -552,7 +556,7 @@ def _get_response_output(response: Any) -> Iterator[Tuple[str, Any]]:
         if content := message.content:
             yield OUTPUT_VALUE, content
         else:
-            yield OUTPUT_VALUE, json.dumps(message.additional_kwargs, cls=_CustomJSONEncoder)
+            yield OUTPUT_VALUE, safe_json_dumps(message.additional_kwargs, cls=_CustomJSONEncoder)
             yield OUTPUT_MIME_TYPE, OpenInferenceMimeTypeValues.JSON.value
     elif isinstance(response, Response):
         if response.response:
@@ -640,7 +644,7 @@ def _template_attributes(payload: Dict[str, Any]) -> Iterator[Tuple[str, Any]]:
     if template := payload.get(EventPayload.TEMPLATE):
         yield LLM_PROMPT_TEMPLATE, template
     if template_vars := payload.get(EventPayload.TEMPLATE_VARS):
-        yield LLM_PROMPT_TEMPLATE_VARIABLES, json.dumps(template_vars)
+        yield LLM_PROMPT_TEMPLATE_VARIABLES, safe_json_dumps(template_vars)
 
 
 def _get_tool_call(tool_call: object) -> Iterator[Tuple[str, Any]]:
@@ -671,6 +675,15 @@ def _flatten(mapping: Mapping[str, Any]) -> Iterator[Tuple[str, AttributeValue]]
         else:
             if isinstance(value, Enum):
                 value = value.value
+            elif isinstance(value, SupportsFloat) and not isinstance(
+                value,
+                (int, float, Iterable),
+            ):
+                # This is for when there are numpy values, which will be rejected by protobuf.
+                # We convert all of them to float, so we don't need a dependency on numpy.
+                # The check on Iterable is to avoid converting numpy arrays to float,
+                # because numpy arrays are instances of SupportsFloat.
+                value = float(value)
             yield key, value
 
 

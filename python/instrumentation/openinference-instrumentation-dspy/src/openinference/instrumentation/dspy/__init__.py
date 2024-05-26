@@ -17,6 +17,7 @@ from typing import (
 )
 
 import opentelemetry.context as context_api
+from openinference.instrumentation import get_attributes_from_context, safe_json_dumps
 from openinference.instrumentation.dspy.package import _instruments
 from openinference.instrumentation.dspy.version import __version__
 from openinference.semconv.trace import (
@@ -218,13 +219,14 @@ class _LMBasicRequestWrapper(_WithTracer):
                     {
                         OPENINFERENCE_SPAN_KIND: LLM.value,
                         LLM_MODEL_NAME: instance.kwargs.get("model"),
-                        LLM_INVOCATION_PARAMETERS: json.dumps(invocation_parameters),
+                        LLM_INVOCATION_PARAMETERS: safe_json_dumps(invocation_parameters),
                         INPUT_VALUE: str(prompt),
                         INPUT_MIME_TYPE: OpenInferenceMimeTypeValues.TEXT.value,
                     }
                 )
             ),
         ) as span:
+            span.set_attributes(dict(get_attributes_from_context()))
             try:
                 response = wrapped(*args, **kwargs)
             except Exception as exception:
@@ -304,6 +306,7 @@ class _PredictForwardWrapper(_WithTracer):
                 )
             ),
         ) as span:
+            span.set_attributes(dict(get_attributes_from_context()))
             try:
                 prediction = wrapped(*args, **kwargs)
             except Exception as exception:
@@ -314,7 +317,7 @@ class _PredictForwardWrapper(_WithTracer):
                 dict(
                     _flatten(
                         {
-                            OUTPUT_VALUE: json.dumps(
+                            OUTPUT_VALUE: safe_json_dumps(
                                 self._prediction_to_output_dict(prediction, signature)
                             ),
                             OUTPUT_MIME_TYPE: OpenInferenceMimeTypeValues.JSON.value,
@@ -373,6 +376,7 @@ class _ModuleForwardWrapper(_WithTracer):
                 )
             ),
         ) as span:
+            span.set_attributes(dict(get_attributes_from_context()))
             try:
                 prediction = wrapped(*args, **kwargs)
             except Exception as exception:
@@ -383,7 +387,7 @@ class _ModuleForwardWrapper(_WithTracer):
                 dict(
                     _flatten(
                         {
-                            OUTPUT_VALUE: json.dumps(prediction, cls=DSPyJSONEncoder),
+                            OUTPUT_VALUE: safe_json_dumps(prediction, cls=DSPyJSONEncoder),
                             OUTPUT_MIME_TYPE: OpenInferenceMimeTypeValues.JSON.value,
                         }
                     )
@@ -424,6 +428,7 @@ class _RetrieverForwardWrapper(_WithTracer):
                 )
             ),
         ) as span:
+            span.set_attributes(dict(get_attributes_from_context()))
             try:
                 prediction = wrapped(*args, **kwargs)
             except Exception as exception:
@@ -476,6 +481,7 @@ class _RetrieverModelCallWrapper(_WithTracer):
                 )
             ),
         ) as span:
+            span.set_attributes(dict(get_attributes_from_context()))
             try:
                 retrieved_documents = wrapped(*args, **kwargs)
             except Exception as exception:
@@ -529,6 +535,20 @@ class DSPyJSONEncoder(json.JSONEncoder):
             return repr(o)
 
 
+class SafeJSONEncoder(json.JSONEncoder):
+    """
+    Safely encodes non-JSON-serializable objects.
+    """
+
+    def default(self, o: Any) -> Any:
+        try:
+            return super().default(o)
+        except TypeError:
+            if hasattr(o, "dict") and callable(o.dict):  # pydantic v1 models, e.g., from Cohere
+                return o.dict()
+            return repr(o)
+
+
 def _get_input_value(method: Callable[..., Any], *args: Any, **kwargs: Any) -> str:
     """
     Parses a method call's inputs into a JSON string. Ensures a consistent
@@ -551,7 +571,7 @@ def _get_input_value(method: Callable[..., Any], *args: Any, **kwargs: Any) -> s
         *args,
         **kwargs,
     )
-    return json.dumps(
+    return safe_json_dumps(
         {
             **{
                 argument_name: argument_value
@@ -613,12 +633,12 @@ def _jsonify_output(response: Any) -> str:
     Converts output to JSON string.
     """
     if isinstance(response, BaseModel):
-        return json.dumps(response.model_dump())
+        return safe_json_dumps(response.model_dump())
 
     if _is_google_response(response):
-        return json.dumps(_parse_google_response(response))
+        return safe_json_dumps(_parse_google_response(response))
 
-    return json.dumps(response)
+    return safe_json_dumps(response, cls=SafeJSONEncoder)
 
 
 def _is_google_response(response: Any) -> TypeGuard["GenerateContentResponseType"]:
