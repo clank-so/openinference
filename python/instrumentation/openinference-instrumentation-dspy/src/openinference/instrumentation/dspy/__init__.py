@@ -25,6 +25,7 @@ from openinference.semconv.trace import (
     OpenInferenceMimeTypeValues,
     OpenInferenceSpanKindValues,
     SpanAttributes,
+    MessageAttributes,
 )
 from opentelemetry import trace as trace_api
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore
@@ -64,6 +65,7 @@ class DSPyInstrumentor(BaseInstrumentor):  # type: ignore
 
         # Instrument LM (language model) calls
         from dsp.modules.lm import LM
+        from dspy.modeling.backends.base import BaseBackend
 
         from dspy import Predict
 
@@ -77,6 +79,15 @@ class DSPyInstrumentor(BaseInstrumentor):  # type: ignore
                 name=lm.__name__ + ".basic_request",
                 factory=CopyableFunctionWrapper,
                 args=(_LMBasicRequestWrapper(tracer),),
+            )
+
+        backend_classes = BaseBackend.__subclasses__()
+        for bk in backend_classes:
+            wrap_object(
+                module=_DSPY_MODULE,
+                name=bk.__name__ + ".make_request",
+                factory=CopyableFunctionWrapper,
+                args=(_BKMakeRequestWrapper(tracer),),
             )
 
         # Predict is a concrete (non-abstract) class that may be invoked
@@ -133,6 +144,13 @@ class DSPyInstrumentor(BaseInstrumentor):  # type: ignore
         for lm in language_model_classes:
             if hasattr(lm.request, "__wrapped__"):
                 lm.request = lm.request.__wrapped__
+
+        from dspy.modeling.backends.base import BaseBackend
+
+        backend_classes = BaseBackend.__subclasses__()
+        for bk in backend_classes:
+            if hasattr(bk.request, "__wrapped__"):
+                bk.request = bk.request.__wrapped__
 
         # Restore DSPy constructs
         from dspy import Predict
@@ -241,6 +259,69 @@ class _LMBasicRequestWrapper(_WithTracer):
                         {
                             OUTPUT_VALUE: _jsonify_output(response),
                             OUTPUT_MIME_TYPE: OpenInferenceMimeTypeValues.JSON.value,
+                        }
+                    )
+                )
+            )
+            span.set_status(trace_api.StatusCode.OK)
+        return response
+
+
+class _BKMakeRequestWrapper(_WithTracer):
+    """
+    Wrapper for DSP BaseBackend.make_request
+    Captures all calls to backends (bk)
+    """
+
+    def __call__(
+        self,
+        wrapped: Callable[..., Any],
+        instance: Any,
+        args: Tuple[type, Any],
+        kwargs: Mapping[str, Any],
+    ) -> Any:
+        if context_api.get_value(context_api._SUPPRESS_INSTRUMENTATION_KEY):
+            return wrapped(*args, **kwargs)
+        model = instance.model
+        invocation_parameters = {**kwargs}
+        messages = invocation_parameters.pop("messages")
+        span_name = model
+        with self._tracer.start_as_current_span(
+            span_name,
+            attributes=dict(
+                _flatten(
+                    {
+                        OPENINFERENCE_SPAN_KIND: LLM.value,
+                        LLM_MODEL_NAME: model,
+                        LLM_INVOCATION_PARAMETERS: safe_json_dumps(invocation_parameters),
+                        **{
+                            f"{LLM_INPUT_MESSAGES}.{idx}.{MESSAGE_CONTENT}": message["content"]
+                            for idx, message in enumerate(messages)
+                        },
+                        **{
+                            f"{LLM_INPUT_MESSAGES}.{idx}.{MESSAGE_ROLE}": message["role"]
+                            for idx, message in enumerate(messages)
+                        },
+                    }
+                )
+            ),
+        ) as span:
+            span.set_attributes(dict(get_attributes_from_context()))
+            try:
+                response = wrapped(*args, **kwargs)
+            except Exception as exception:
+                span.set_status(trace_api.Status(trace_api.StatusCode.ERROR, str(exception)))
+                span.record_exception(exception)
+                raise
+            span.set_attributes(
+                dict(
+                    _flatten(
+                        {
+                            f"{LLM_OUTPUT_MESSAGES}.0.{MESSAGE_CONTENT}": response.choices[0].message.content,
+                            f"{LLM_OUTPUT_MESSAGES}.0.{MESSAGE_ROLE}": response.choices[0].message.role,
+                            LLM_TOKEN_COUNT_PROMPT: response.usage.prompt_tokens,
+                            LLM_TOKEN_COUNT_COMPLETION: response.usage.completion_tokens,
+                            LLM_TOKEN_COUNT_TOTAL: response.usage.total_tokens,
                         }
                     )
                 )
@@ -671,3 +752,10 @@ OUTPUT_MIME_TYPE = SpanAttributes.OUTPUT_MIME_TYPE
 LLM_INVOCATION_PARAMETERS = SpanAttributes.LLM_INVOCATION_PARAMETERS
 LLM_MODEL_NAME = SpanAttributes.LLM_MODEL_NAME
 RETRIEVAL_DOCUMENTS = SpanAttributes.RETRIEVAL_DOCUMENTS
+LLM_INPUT_MESSAGES = SpanAttributes.LLM_INPUT_MESSAGES
+LLM_OUTPUT_MESSAGES = SpanAttributes.LLM_OUTPUT_MESSAGES
+MESSAGE_ROLE = MessageAttributes.MESSAGE_ROLE
+MESSAGE_CONTENT = MessageAttributes.MESSAGE_CONTENT
+LLM_TOKEN_COUNT_PROMPT = SpanAttributes.LLM_TOKEN_COUNT_PROMPT
+LLM_TOKEN_COUNT_COMPLETION = SpanAttributes.LLM_TOKEN_COUNT_COMPLETION
+LLM_TOKEN_COUNT_TOTAL = SpanAttributes.LLM_TOKEN_COUNT_TOTAL
